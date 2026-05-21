@@ -1088,7 +1088,7 @@ wheels = [
 
 [[package]]
 name = "property-shared"
-version = "1.7.3"
+version = "1.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -1099,9 +1099,9 @@ dependencies = [
     { name = "requests" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8a/f7/190d5b62e99ec494d1ea60a6806f580113b9989d977768ad7d4351b6b962/property_shared-1.7.3.tar.gz", hash = "sha256:26088a6f19d3af2354253d247a5bb069beaeefd7fa102e8f9c97c4f95412d08e", size = 678293, upload-time = "2026-05-03T05:35:44.358Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c1/fb/a0b03c405cc0c5a2011420df968b27c915d851a46dae8af9c1fd40f95753/property_shared-1.12.0.tar.gz", hash = "sha256:59f8a218a27dad9e0eb8eafd294483e81ec0867ab39989920a4b712776cd20aa", size = 751618, upload-time = "2026-05-17T11:52:34.561Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/5c/fa571aff11ae408392f4d878928dc979319fcb5ae7bce990e67542df934a/property_shared-1.7.3-py3-none-any.whl", hash = "sha256:341acc933e6e85a41d0a78265e5943c3a72abf76f70bdb609ef348bf8d6a0746", size = 136529, upload-time = "2026-05-03T05:35:42.2Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/e0/cc111cd2a7286a32ebaec84e299483462910a38e52878514848df145b665/property_shared-1.12.0-py3-none-any.whl", hash = "sha256:cf58f8c7e31637432a02019eceb33b0043ce9bed7e2838865f145e491c31c045", size = 158271, upload-time = "2026-05-17T11:52:32.571Z" },
 ]
 
 [[package]]
@@ -1749,7 +1749,7 @@ wheels = [
 
 [[package]]
 name = "uk-property-mcp"
-version = "1.0.4"
+version = "1.0.7"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -1770,7 +1770,7 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=3.2.4" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "prometheus-client", specifier = ">=0.20.0" },
-    { name = "property-shared", specifier = ">=1.6.1" },
+    { name = "property-shared", specifier = ">=1.11.0" },
 ]
 
 [package.metadata.requires-dev]

@@ -63,10 +63,18 @@ class PrometheusMiddleware(Middleware):
 
 
 def _slim(obj: Any) -> Any:
-    """Strip raw/images/floorplans/epc_match for LLM-friendly content."""
+    """Strip raw/images/floorplans/epc_match keys + drop None values recursively.
+
+    The bulk-key stripping is the original behaviour. The None-dropping kills
+    placeholder fields like the 10 EPC enrichment keys on PPDTransaction that
+    are always null without explicit enrichment — ~190 wasted tokens per
+    transaction in pre-fix responses.
+    """
     if isinstance(obj, dict):
-        return {k: _slim(v) for k, v in obj.items()
-                if k not in ("raw", "images", "floorplans", "epc_match")}
+        return {
+            k: _slim(v) for k, v in obj.items()
+            if v is not None and k not in ("raw", "images", "floorplans", "epc_match")
+        }
     if isinstance(obj, list):
         return [_slim(item) for item in obj]
     return obj
@@ -160,14 +168,17 @@ async def property_comps(
     search_level: str = "sector",
     address: Optional[str] = None,
     property_type: Optional[str] = None,
+    transaction_category: Optional[str] = "A",
+    filter_outliers: bool = False,
     enrich_epc: bool = True,
     auto_escalate: bool = True,
 ) -> dict:
     """Comparable property sales from Land Registry Price Paid Data.
 
-    Auto-escalates to wider search area if fewer than 5 results found.
-    EPC enrichment adds floor area, price/sqft, and EPC rating to each
-    comp, plus area-level median price/sqft and EPC match rate.
+    Returns clean residential standard sales by default. Bulk transfers
+    (transaction_category "B") and commercial units are excluded unless
+    you opt back in. Auto-escalates to wider search area if fewer than 5
+    results found.
 
     Args:
         postcode: UK postcode (e.g. "SW1A 1AA", "NG11 9HD")
@@ -175,7 +186,13 @@ async def property_comps(
         limit: Max transactions to return (default 30)
         search_level: Search area granularity - usually leave as default
         address: Optional street address to identify subject property and show percentile rank
-        property_type: Filter by type: F=flat, D=detached, S=semi, T=terraced (default all)
+        property_type: Residential filter. None (default) = residential set (F+D+S+T).
+            "F"=flat, "D"=detached, "S"=semi, "T"=terraced, "O"=commercial-only.
+            Pass "ALL" for the raw firehose including commercial.
+        transaction_category: "A" (default) = standard residential sales only.
+            Pass None to include category-B (bulk transfers, intra-group conveyances).
+        filter_outliers: When True, applies a 1.5×IQR price filter (needs ≥4 prices).
+            Default False — median is naturally robust; opt in for a cleaner mean.
         enrich_epc: Add floor area, price/sqft, and EPC rating to each comp (default true)
         auto_escalate: Widen search area if fewer than 5 results (default true). Set false to keep results local — useful when district-level escalation would include irrelevant areas.
     """
@@ -193,6 +210,8 @@ async def property_comps(
             search_level=search_level,
             address=address,
             property_type=property_type,
+            transaction_category=transaction_category,
+            filter_outliers=filter_outliers,
             auto_escalate=auto_escalate,
         )
     )
@@ -775,6 +794,47 @@ async def glama_manifest(request: Request) -> JSONResponse:
 # those before FastMCP sees them.
 # ---------------------------------------------------------------------------
 
+class _HttpGuard:
+    """Return a held-open SSE stream for GET /mcp; 405 for DELETE /mcp.
+
+    claude.ai probes GET /mcp to establish an SSE stream before sending MCP
+    protocol messages via POST. With stateless_http=True FastMCP only registers
+    POST routes, so GET returns 405 — claude.ai treats this as a connection
+    failure even though POST works fine.
+
+    Fix: intercept GET /mcp and return 200 text/event-stream held open until
+    the client disconnects. FastMCP never sees the GET; stateless semantics
+    are preserved. DELETE is rejected (405) — stateless servers have no sessions.
+    """
+
+    def __init__(self, app, mcp_path: bytes = b"/mcp"):
+        self.app = app
+        self._mcp_path = mcp_path.rstrip(b"/")
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            path = scope.get("path", "").rstrip("/").encode()
+            method = scope.get("method", "").upper().encode()
+            if path == self._mcp_path:
+                if method == b"GET":
+                    await send({"type": "http.response.start", "status": 200, "headers": [
+                        (b"content-type", b"text/event-stream"),
+                        (b"cache-control", b"no-cache"),
+                        (b"connection", b"keep-alive"),
+                    ]})
+                    await send({"type": "http.response.body", "body": b"", "more_body": True})
+                    while True:
+                        event = await receive()
+                        if event["type"] == "http.disconnect":
+                            break
+                    return
+                if method == b"DELETE":
+                    from starlette.responses import Response as StarletteResponse
+                    await StarletteResponse("Method Not Allowed", status_code=405, headers={"Allow": "POST"})(scope, receive, send)
+                    return
+        await self.app(scope, receive, send)
+
+
 class _AcceptNormalizer:
     """Stamp Accept to the MCP-spec value on /mcp only, so json_response=True never 406s.
 
@@ -816,7 +876,7 @@ def main():
         stateless_http=True,
     )
     uvicorn.run(
-        _AcceptNormalizer(app),
+        _HttpGuard(_AcceptNormalizer(app)),
         host="0.0.0.0",
         port=port,
         forwarded_allow_ips="*",
